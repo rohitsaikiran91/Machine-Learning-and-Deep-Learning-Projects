@@ -1,0 +1,181 @@
+---
+title: "MitH_Data_Preprocessing Module"
+author: "Rohit"
+output: html_document
+  
+---
+
+```{r setup, include=FALSE}
+rm(list=ls(all.names=T))
+data_comp1<-read.table(sep ="," ,na.strings ="?" ,as.is = T,file='D:/MITH/Dataset/Test_data_model_grader.csv',header=T)
+head(data_comp)
+str(data_comp)
+summary(data_comp[d])
+library(tidyverse)
+data_comp%>%filter(istrain==1)->data_filter
+d<-c('RowID','istrain','datacollected','EmployeeCount','FirstJobDate','DateOfjoiningintheCurrentCompany','EmployeeID','StandardHours')
+data_train<-data_filter[setdiff(colnames(data_filter),d)]
+str(data_train)
+data_comp%>%filter(istrain==0)->data_filter1
+data_filter1%>%select(RowID)->RowID
+data_test<-data_filter1[setdiff(colnames(data_filter1),d)]
+
+write.table(x = data_train,file = "D:/MITH/Dataset/Train_data_model.csv",sep = ",")
+write.table(x = data_test,file = "D:/MITH/Dataset/Test_data_model_grader.csv",sep = ",")
+write.table(x = RowID,file = "D:/MITH/Dataset/Test_data_model_g_ID.csv",sep = ",")
+```
+## Reading the dataset and Basic Pre-processing
+1) Read data using read.table
+2) Checking initial structure and summary of the data set
+3) Iterations with required changes in the read.table command
+4) Separating the numerical variables and categorical variables using sapply function
+5) Adjusting data between the numeric and categorical dataframes
+6) Using apply function to convert to factors
+7) merge function incase two data sets given
+```{r}
+rm(list=ls(all.names = T))
+data_comp<-read.table(sep ="," ,na.strings ="?" ,as.is = T,file='D:/MITH/Dataset/Train_data_model.csv',header=T)
+#data_comp1<-read.table()
+#merge(x=,y=,by.x=,by.y= )
+data_test<-read.table(sep ="," ,na.strings ="?" ,as.is = T,file='D:/MITH/Dataset/Test_data_model_grader.csv',header=T)
+
+summary(data_comp[cat_num])
+str(data_comp[cat_num])
+```
+##Required data conversions and transformations
+1)Separating columns of factors & characters from numeric & integer
+2)Discretizing certain variables
+  1)YearsSinceLastPromotion
+  2)No.ofWorkshopsAttended
+  3)YearsInCurrentRole  
+
+```{r}
+##for Train_data
+num_vars<-colnames(data_comp)[sapply(data_comp,FUN = class) %in% c('numeric','integer')]
+cat_vars<-colnames(data_comp)[sapply(data_comp,FUN = class) %in% c('factor','character')]
+
+#adjustment based on definitions
+
+cat_num<-c('Joblevel','OfficeAmbienceRating','SelfMotivationRating','RelationshipSatisfaction','Education','WorkLifeBalance','Happynesslevelinjob','ESOps','PerformanceRating') 
+
+install.packages('rlist',repos = "http://cran.us.r-project.org")
+library(rlist)
+cat_vars<-list.append(cat_vars,cat_num)
+
+num_vars<-setdiff(num_vars,cat_num)
+
+data_numeric<-data_comp[num_vars]
+data_cat<-data_comp[cat_vars]
+
+##For test_data
+num_vars<-colnames(data_test)[sapply(data_test,FUN = class) %in% c('numeric','integer')]
+cat_vars<-colnames(data_test)[sapply(data_test,FUN = class) %in% c('factor','character')]
+
+#adjustment based on definitions
+
+cat_num<-c('Joblevel','OfficeAmbienceRating','SelfMotivationRating','RelationshipSatisfaction','Education','WorkLifeBalance','Happynesslevelinjob','ESOps','PerformanceRating') 
+
+install.packages('rlist',repos = "http://cran.us.r-project.org")
+library(rlist)
+cat_vars<-list.append(cat_vars,cat_num)
+
+num_vars<-setdiff(num_vars,cat_num)
+
+data_numeric_t<-data_test[num_vars]
+data_cat_t<-data_test[cat_vars]
+summary(data_comp1[disc])
+##To be discretized
+disc<-c('YearsSinceLastPromotion','No.ofWorkshopsAttended','YearsInCurrentRole')
+disc_data<-data_numeric[,disc]
+disc_data_t<-data_numeric_t[,disc]
+library(infotheo)
+##Checking if test and train data for selected variables have the same range
+summary(disc_data)
+summary(disc_data_t)
+
+###Discretizing in both test and train datasets
+
+x<-discretize(disc_data,disc = 'equalwidth',nbins = 3)
+x_test<-discretize(disc_data_t,disc = 'equalwidth',nbins = 3)
+data_numeric[,disc]<-x
+data_numeric_t[,disc]<-x_test
+
+##Reiterating numerical and categorical variables
+
+cat_vars<-list.append(cat_vars,disc)
+num_vars<-setdiff(num_vars,disc)
+
+data_cat<-cbind.data.frame(data_cat,x)
+data_cat_t<-cbind.data.frame(data_cat_t,x_test)
+```
+## Final conversion to factors
+```{r}
+str(data_cat)
+##For training data set
+data_cat[sapply(data_cat,class) %in% c('numeric','integer')]<-as.data.frame(apply(data_cat[sapply(data_cat,class) %in% c('numeric','integer')],MARGIN = 2,FUN = as.character))
+data_cat<-as.data.frame(apply(data_cat,MARGIN = 2,FUN=as.factor))
+
+##For testing dataset
+str(data_cat_t)
+data_cat_t[sapply(data_cat_t,class) %in% c('numeric','integer')]<-as.data.frame(apply(data_cat_t[sapply(data_cat_t,class) %in% c('numeric','integer')],MARGIN = 2,FUN = as.character))
+data_cat_t<-as.data.frame(apply(data_cat_t,MARGIN = 2,FUN=as.factor))
+
+## Removing the discretized values from numerics and adding to categorical
+
+data_numeric[disc]=NULL
+data_numeric_t[disc]=NULL
+
+
+data_final_train<-as.data.frame(cbind(data_numeric,data_cat))
+data_final_test<-as.data.frame(cbind(data_numeric_t,data_cat_t))
+str(data_final_train)
+data_final_test$ExtraTime=NULL
+data_final_test$Over18=NULL
+data_final_train$Over18=NULL
+```
+##Checking for NA values
+```{r}
+library(DMwR)
+table(data_final_test$ExtraTime)
+colSums(is.na(data_final_train))
+colSums(is.na(data_final_test))
+
+
+```
+
+## Dummy variables and Imputation
+```{r}
+library(caret)
+!colnames(data_final_train)%in%c('ExtraTime')
+
+library(DMwR)
+dummyvar<-dummyVars(~.,data_final_train[!colnames(data_final_train)%in%c('ExtraTime')])
+str(data_final_train)
+data_dumm_train<-as.data.frame(predict(dummyvar,data_final_train))
+
+
+standardize<-preProcess(data_dumm_train[num_vars],method = c('center','scale'))
+data_standard<-predict(standardize,data_dumm_train)
+data_standard['target']<-data_final_train$ExtraTime
+str(data_standard$target)
+##For test_data
+
+dummyvar<-dummyVars(~.,data_final_test)
+
+data_dumm_test<-as.data.frame(predict(dummyvar,data_final_test))
+
+
+standardize1<-preProcess(data_dumm_test[num_vars],method = c('center','scale'))
+data_standard_t<-predict(standardize1,data_dumm_test)
+
+summary(data_standard[num_vars])
+summary(data_standard_t[num_vars])
+
+```
+## Write the model ready data
+
+```{r}
+write.table(x = data_standard,file = "D:/MITH/Dataset/cleaned/Train_data_cleaned.csv",sep = ",")
+write.table(x = data_standard_t, "D:/MITH/Dataset/Test_data_cleaned.csv",sep = ",")
+
+```

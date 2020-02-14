@@ -1,0 +1,234 @@
+---
+title: "Models_Building_Stacking"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Reading pre-Processed data
+```{r}
+rm(list = ls(all.names=T))
+library(caret)
+
+data_comp<-read.csv('D:/MITH/Dataset/cleaned/Train_data_cleaned.csv',header = T)
+test_DATA<-read.csv('D:/MITH/Dataset/cleaned/Test_data_cleaned.csv',header = T)
+summary(data_comp)
+str(data_comp)
+set.seed(123)
+
+index_data<-createDataPartition(p = 0.7,y = data_comp[,'target'])
+train_data<-data_comp[index_data$Resample1,]
+test_data<-data_comp[-index_data$Resample1,]
+table(train_data$target)
+table(test_data$target)
+summary(train_data)
+summary(test_data)
+##train_data$target<-as.factor(train_data$target)
+class(train_data$target)
+test_data$target<-as.factor(test_data$target)
+str(train_data)
+d<-!colnames(train_data)%in%c('target')
+```
+
+## Model-1: Elastic Net
+```{r}
+#install.packages('smotefamily')
+library(DMwR)
+library(caret)
+library(glmnet)
+##smote_in<-DMwR::SMOTE(target~.,data = train_data,perc.over = 100,perc.under=(3170/332)*100,k=5)
+##table(train_data$target)
+##table(smote_in$target)
+sampling_Elastic<-trainControl(method = 'repeatedcv',number = 5,repeats = 5,verboseIter = T)
+param_elastic<-expand.grid(.lambda=seq(from=0,to = 1,by = 0.25),.alpha=seq(from = 0,to = 0.9,by = 0.1))
+Elastic_net<-caret::train(target~.,data=train_data,method='glmnet',trControl = sampling_Elastic,tuneGrid = param_elastic,metric = 'Accuracy')
+plot(Elastic_net,labels=T)
+coef(Elastic_net$finalModel,s=Elastic_net$finalModel$lambdaOpt)
+table(test_data$target)
+pred_elastic<-predict(Elastic_net,test_data,s=Elastic_net$finalModel$lambdaOpt)
+table(pred_elastic)
+pred_elasticas.factor(ifelse())
+confusionMatrix(data = pred_elastic,reference = test_data$target)
+
+Train_pred_stack2<-predict(Elastic_net,data_comp)
+Train_pred_stack2<-ifelse(Train_pred_stack2=='No',0,1)
+Test_pred_stack2<-predict(Elastic_net,test_DATA)
+Test_pred_stack2<-ifelse(Test_pred_stack2=='No',0,1)
+```
+## Model-2: XGBoost
+```{r echo=F}
+library(xgboost)
+d=c('target')
+train_data$target<-as.character(train_data$target)
+train_data$target<-ifelse(train_data$target=='No',0,1)
+test_data$target<-ifelse(test_data$target=='No',0,1)
+train_matrix <- xgb.DMatrix(data = as.matrix(train_data[, -ncol(train_data)]), 
+                            label = as.matrix(train_data[,'target']))
+
+test_matrix <- xgb.DMatrix(data = as.matrix(test_data[, -ncol(train_data)]), 
+                            label = as.matrix(test_data[, 'target']))
+
+
+params_list <- list("objective" = "binary:logistic",
+              "eta" = 0.0001,
+              "early_stopping_rounds" = 10,
+              "max_depth" = 20,
+              "gamma" = 0.05,
+              "colsample_bytree" = 0.8,
+              "eval_metric" = "auc",
+              "scale_pos_weight"=2,
+              "silent" = 1,
+              #"lambda_bias"=0.2,
+              "min_child_weight"=10)
+
+xgb_model_with_params <- xgboost(data = train_matrix, params = params_list, nrounds = 500, early_stopping_rounds = 20)
+table(test_data$target)
+preds<-predict(xgb_model_with_params,test_matrix)
+preds<-ifelse(preds<0.5,0,1)
+Eval_xgboost<-data.frame(preds,test_data$target)
+as.factor(preds)
+as.factor(test_data$target)
+confusionMatrix(reference=as.factor(test_data$target),data = as.factor(preds))
+table(train_data$target)
+
+```
+## Model-3:XGBoost on whole train set
+```{r}
+library(xgboost)
+d=c('target')
+
+train_DATA<-rbind.data.frame(train_data,test_data)
+test_DATA<-read.csv('D:/MITH/Dataset/cleaned/Test_data_cleaned.csv',header = T)
+
+train_matrix <- xgb.DMatrix(data = as.matrix(train_DATA[, -ncol(train_data)]), 
+                            label = as.matrix(ifelse(data_comp[,'target']=='No',0,1)))
+dim(train_matrix)
+test_matrix <- xgb.DMatrix(data = as.matrix(test_DATA))
+dim(test_matrix)
+
+params_list <- list("objective" = "binary:logistic",
+                    "eta" = 0.1,
+                    "early_stopping_rounds" = 10,
+                    "max_depth" = 10,
+                    "gamma" = 0.5,
+                  "subsample" = 0.9,
+                    "eval_metric" = "auc",
+                   "silent" = 1,
+                    'scale_pos_weight'=1,
+                   'lambda_bias'=0.32,
+                   'min_child_weight'=1)
+
+xgb_model_with_params_f <- xgboost(data = train_matrix, params = params_list, nrounds = 500, early_stopping_rounds = 20)
+
+
+preds_Xgboost_Comp<-ifelse(preds==0,'No','Yes')
+Train_pred_stack1<-predict(xgb_model_with_params_f,train_matrix)
+Train_pred_stack1<-ifelse(Train_pred_stack1<0.5,0,1)
+Test_pred_stack1<-predict(xgb_model_with_params_f,test_matrix)
+Test_pred_stack1<-ifelse(Test_pred_stack1<0.5,0,1)
+
+confusionMatrix(data=as.factor(ifelse(Train_pred_stack1==0,'No','Yes')),as.factor(train_DATA$target))
+RowID<-read.csv('D:/MITH/Dataset/Test_data_model_g_ID.csv')
+Submission<-data.frame(RowID$RowID,Test_pred_stack1,stringsAsFactors = F)
+write.table(x = Submission,file = 'D:/MITH/XGB/submission-template.csv',col.names = c('RowID','ExtraTime'),sep = ",",row.names = F)
+```
+## Model-4: Randomforest for validation
+```{r echo=FALSE}
+rm(list = setdiff(ls(),c('train_data','test_data')))
+library(randomForest)
+mtry<-tuneRF(x = train_data[,-ncol(train_data)],y = as.factor(train_data$target),improve = 0.01,ntreeTry = 100,stepFactor = 1.5,trace = T,plot = T)
+best.m<-which(min(mtry[,2])==mtry[,2])
+
+train_data$target<-ifelse(train_data$target==0,'No','Yes')
+train_data$target<-as.factor(train_data$target)
+
+test_data$target<-ifelse(test_data$target==0,'No','Yes')
+test_data$target<-as.factor(test_data$target)
+
+RFmodel<-randomForest(importance = T,x = train_data[,-ncol(train_data)],y = as.factor(train_data$target),xtest = test_data[,-ncol(train_data)],ytest = as.factor(test_data$target),mtry = 1,ntree = 100,keep.forest = T)
+
+class(RFmodel$predicted)
+Eval_RF<-data.frame(RFmodel$test$predicted,test_data['target'])
+confusionMatrix(data = Eval_RF$RFmodel.test.predicted, reference = as.factor(test_data$target))
+
+importance(RFmodel)
+
+rf_Imp_Attr = data.frame(RFmodel$importance)
+rf_Imp_Attr = data.frame(row.names(rf_Imp_Attr),rf_Imp_Attr[,1])
+colnames(rf_Imp_Attr) = c('Attributes', 'Importance')
+rf_Imp_Attr = rf_Imp_Attr[order(rf_Imp_Attr$Importance, decreasing = TRUE),]
+plot(rf_Imp_Attr)
+
+
+```
+## Model:5: RandomForest for whole 
+```{r}
+mtry1<-tuneRF(x = train_DATA[,-ncol(train_DATA)],y = as.factor(train_DATA$target),improve = 0.01,ntreeTry = 100,stepFactor = 1.5,trace = T,plot = T)
+best.m<-which(min(mtry1[,2])==mtry1[,2])
+best.m
+
+RFmodel1<-randomForest(importance = T,x = train_DATA[,-ncol(train_data)],y = as.factor(train_DATA$target),mtry = best.m,ntree = 100,keep.forest = T)
+Train_pred_stack3<-predict(RFmodel,train_DATA[-ncol(train_DATA)])
+Train_pred_stack3<-ifelse(as.numeric(Train_pred_stack2)==2,1,0)
+Test_pred_stack3<-predict(RFmodel,test_DATA)
+as.numeric(Test_pred_stack2)
+Test_pred_stack3<-ifelse(as.numeric(Test_pred_stack2)==2,1,0)
+table(Test_pred_stack2)
+```
+
+## XGBoost stack
+
+```{r}
+train_stack<-data.frame(cbind(Train_pred_stack1,Train_pred_stack2,Train_pred_stack3,data_comp['target']))
+colnames(test_stack)<-colnames(train_stack[,-4])
+test_stack<-data.frame(cbind(Test_pred_stack1,Test_pred_stack2,Test_pred_stack3))
+
+
+
+
+train_matrix <- xgb.DMatrix(data = as.matrix(train_stack[, -4]), 
+                            label = as.matrix(ifelse(test_stack[,4]=='No',0,1)))
+dim(train_matrix)
+test_matrix <- xgb.DMatrix(data = as.matrix(test_stack))
+dim(test_matrix)
+modelLookup(xgboost)
+params_list_stack <- list("objective" = "binary:logistic",
+                    "eta" = 0.8,
+                    "early_stopping_rounds" = 10,
+                    "max_depth" = 100,
+                    "gamma" = 0.5,
+                  "subsample" = 0.9,
+                    "eval_metric" = "auc",
+                   "silent" = 1,
+                    'scale_pos_weight'=1,
+                   'lambda_bias'=0.32,
+                   'min_child_weight'=6)
+
+xgb_model_with_params_stack <- xgboost(data = train_matrix, params = params_list_stack, nrounds = 500, early_stopping_rounds = 20)
+
+
+preds_Xgboost_Comp<-ifelse(preds==0,'No','Yes')
+Train_pred_stack5<-predict(xgb_model_with_params_stack,train_matrix)
+Train_pred_stack5<-ifelse(Train_pred_stack1<0.5,0,1)
+Test_pred_stack5<-predict(xgb_model_with_params_stack,test_matrix)
+Test_pred_stack5<-ifelse(Test_pred_stack1<0.4,0,1)
+Test_pred_stack5<-ifelse(Test_pred_stack5==0,'No','Yes')
+confusionMatrix(data=as.factor(ifelse(Train_pred_stack1==0,'No','Yes')),as.factor(train_DATA$target))
+RowID<-read.csv('D:/MITH/Dataset/Test_data_model_g_ID.csv')
+Submission<-data.frame(RowID$RowID,Test_pred_stack5,stringsAsFactors = F)
+write.table(x = Submission,file = 'D:/MITH/XGB/submission-template.csv',col.names = c('RowID','ExtraTime'),sep = ",",row.names = F)
+
+```
+```{r}
+sampling_Elastic1<-trainControl(method = 'repeatedcv',number = 5,repeats = 5,verboseIter = T)
+param_elastic1<-expand.grid(.lambda=seq(from=0,to = 1,by = 0.05),.alpha=1)
+Elastic_net_stack<-caret::train(target~.,data=train_stack,method='glmnet',trControl = sampling_Elastic1,tuneGrid = param_elastic1,metric = 'Accuracy')
+Test_pred_stack6<-predict(Elastic_net_stack,test_stack,s=Elastic_net_stack$finalModel$lambdaOpt)
+Test_pred_stack6<-ifelse(Test_pred_stack6==1,'No','Yes')
+Submission<-data.frame(RowID$RowID,Test_pred_stack6,stringsAsFactors = F)
+write.table(x = Submission,file = 'D:/MITH/submission-template.csv',col.names = c('RowID','ExtraTime'),sep = ",",row.names = F)
+```
